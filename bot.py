@@ -9,16 +9,18 @@ from aiogram.enums import ParseMode
 # Токен вашего бота
 BOT_TOKEN = "8812919203:AAFgJLtosHkdCEflL3vl2nq36X6kINUaxmQ"
 
-bot = Bot(token=BOT_TOKEN, default=properties=DefaultBotProperties(parse_mode=ParseMode.HTML))
+# Инициализация бота
+bot = Bot(
+    token=BOT_TOKEN, 
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher()
 
-# Временная база данных в памяти для имитации прогресса пользователей
+# Временная база данных в памяти
 user_data = {}
 
 def get_user_stats(user_id: int):
-    """Инициализирует или обновляет прогресс пользователя для реалистичности"""
     if user_id not in user_data:
-        # Стартовые значения: например, 12 сообщений и 2 часа 50 минут (170 минут) осталось
         user_data[user_id] = {
             "messages": random.randint(5, 25),
             "minutes_left": random.randint(160, 179)
@@ -26,19 +28,14 @@ def get_user_stats(user_id: int):
     return user_data[user_id]
 
 def update_user_stats(user_id: int):
-    """Слегка улучшает статистику при нажатии кнопки 'Обновить'"""
     stats = get_user_stats(user_id)
-    # Прибавляем от 3 до 10 сообщений
     stats["messages"] = min(500, stats["messages"] + random.randint(3, 10))
-    # Уменьшаем время на 2-5 минут
     stats["minutes_left"] = max(0, stats["minutes_left"] - random.randint(2, 5))
     return stats
 
 def format_time(minutes: int) -> str:
-    """Форматирует минуты в красивую строку 'Х часа и Y минут'"""
     hours = minutes // 60
     mins = minutes % 60
-    
     if hours > 0:
         return f"{hours} часа и {mins} минут"
     return f"{mins} минут"
@@ -56,16 +53,16 @@ def get_main_keyboard():
     builder.button(text="💎 Обновить", callback_data="refresh_stats")
     builder.button(text="⭐️ Вывести", callback_data="withdraw_stars")
     builder.button(text="🛡️ Отзывы", url="https://t.me/kkepersot")
-    # Выстраиваем кнопки: первая кнопка на всю ширину, потом по две в ряд
     builder.adjust(1, 2, 1)
     return builder.as_markup()
 
 def get_back_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="Назад", callback_data="back_to_main")
+    builder.button(text="Назад", callback_data="
+back_to_main")
     return builder.as_markup()
 
-# --- Шаблоны сообщений ---
+# --- Тексты ---
 
 def get_main_text(username: str, stats: dict) -> str:
     time_str = format_time(stats["minutes_left"])
@@ -78,7 +75,7 @@ def get_main_text(username: str, stats: dict) -> str:
         f'⚡️ Чат - https://t.me/femelyspace'
     )
 
-# --- Обработчики ---
+# --- Хэндлеры ---
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
@@ -95,7 +92,6 @@ async def process_get_stars(callback: types.CallbackQuery):
     stats = get_user_stats(callback.from_user.id)
     text = get_main_text(username, stats)
     
-    # Удаляем старое приветствие и отправляем новое информационное сообщение
     await callback.message.delete()
     await callback.message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
     await callback.answer()
@@ -103,15 +99,12 @@ async def process_get_stars(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "refresh_stats")
 async def process_refresh(callback: types.CallbackQuery):
     username = callback.from_user.username or callback.from_user.first_name
-    # Обновляем прогресс (сообщения растут, время падает)
     stats = update_user_stats(callback.from_user.id)
     text = get_main_text(username, stats)
     
-    # Изменяем только текст сообщения и счетчики, клавиатуру оставляем прежней
     try:
         await callback.message.edit_text(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
     except Exception:
-        # Перехватываем ошибку, если текст не изменился (например, при частых кликах)
         pass
     await callback.answer("Данные успешно обновлены! 💎")
 
@@ -121,7 +114,6 @@ async def process_withdraw(callback: types.CallbackQuery):
         f'<tg-emoji emoji-id="5213179235996294999">❌</tg-emoji> '
         f'Вам нужно провести 3 часа актив , и отправил 500 сообщений в чат , нельзя спамить! Только общение.'
     )
-    # Удаляем текущее сообщение и присылаем отказ с кнопкой Назад
     await callback.message.delete()
     await callback.message.answer(text, reply_markup=get_back_keyboard())
     await callback.answer()
@@ -132,12 +124,10 @@ async def process_back(callback: types.CallbackQuery):
     stats = get_user_stats(callback.from_user.id)
     text = get_main_text(username, stats)
     
-    # Удаляем сообщение об отказе и возвращаем главное меню
     await callback.message.delete()
     await callback.message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
     await callback.answer()
 
-# Запуск бота
 async def main():
     print("Бот успешно запущен и готов к работе!")
     await dp.start_polling(bot)
