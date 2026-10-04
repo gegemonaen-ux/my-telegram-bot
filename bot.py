@@ -1,136 +1,289 @@
 import asyncio
-import random
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.client.default import DefaultBotProperties
+import logging
+import os
+import time
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode
+from aiogram.filters import CommandStart
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiohttp import web
 
 # Токен вашего бота
-BOT_TOKEN = "8812919203:AAFgJLtosHkdCEflL3vl2nq36X6kINUaxmQ"
+TOKEN = "8812919203:AAEKMvhWwD4n58MrRuyJExdA0MBJBV5k3PU"
 
-# Инициализация бота
-bot = Bot(
-    token=BOT_TOKEN, 
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
+# Username чата для проверки подписки и подсчета сообщений
+CHAT_USERNAME = "@chat_nft71"
+
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Временная база данных в памяти
-user_data = {}
+# Хранилище данных (сообщения и время подписки)
+# В реальном проекте это БД, в рамках кода - словарь в памяти
+user_messages = {}  # {user_id: count}
+user_sub_time = {}  # {user_id: timestamp_start}
 
-def get_user_stats(user_id: int):
-    if user_id not in user_data:
-        user_data[user_id] = {
-            "messages": random.randint(5, 25),
-            "minutes_left": random.randint(160, 179)
-        }
-    return user_data[user_id]
 
-def update_user_stats(user_id: int):
-    stats = get_user_stats(user_id)
-    stats["messages"] = min(500, stats["messages"] + random.randint(3, 10))
-    stats["minutes_left"] = max(0, stats["minutes_left"] - random.randint(2, 5))
-    return stats
+# Вспомогательная функция формирования имени пользователя
+def get_user_mention(user: types.User) -> str:
+    if user.username:
+        return f"@{user.username}"
+    return user.first_name
 
-def format_time(minutes: int) -> str:
-    hours = minutes // 60
-    mins = minutes % 60
+
+# Вспомогательная функция расчета времени (часы и минуты)
+def get_time_spent(user_id: int) -> str:
+    if user_id not in user_sub_time:
+        user_sub_time[user_id] = time.time()
+
+    elapsed = int(time.time() - user_sub_time[user_id])
+    hours = elapsed // 3600
+    minutes = (elapsed % 3600) // 60
+
     if hours > 0:
-        return f"{hours} часа и {mins} минут"
-    return f"{mins} минут"
+        return f"{hours} часа и {minutes} минут"
+    else:
+        return f"{minutes} минут"
 
-# --- Клавиатуры ---
 
-def get_start_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="⭐️ Получить звезды", callback_data="get_stars")
-    return builder.as_markup()
+# Проверка подписки на чат
+async def check_subscription(user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(
+            chat_id=CHAT_USERNAME, user_id=user_id
+        )
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+    except Exception as e:
+        logging.error(f"Ошибка проверки подписки: {e}")
+    return False
 
-def get_main_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🪎 Подписаться на чат", url="https://t.me/femelyspace")
-    builder.button(text="💎 Обновить", callback_data="refresh_stats")
-    builder.button(text="⭐️ Вывести", callback_data="withdraw_stars")
-    builder.button(text="🛡️ Отзывы", url="https://t.me/kkepersot")
-    builder.adjust(1, 2, 1)
-    return builder.as_markup()
 
-def get_back_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Назад", callback_data="
-back_to_main")
-    return builder.as_markup()
+# --- ЭКРАНЫ И КЛАВИАТУРЫ ---
 
-# --- Тексты ---
 
-def get_main_text(username: str, stats: dict) -> str:
-    time_str = format_time(stats["minutes_left"])
-    return (
-        f'<tg-emoji emoji-id="5215480427933898474">⭐</tg-emoji> <b>Чтобы вывести 750 звезд на аккаунт @{username}, нужно провести 3 часа в чате активно!</b>\n\n'
-        f'<tg-emoji emoji-id="5902335789798265487">⚠️</tg-emoji> <blockquote>Нельзя спамить , только общение среди пользователей , после того как будете актив нажмите кнопку получить звезды , после звезды автоматически придут на аккаунт!</blockquote>\n\n'
-        f'<tg-emoji emoji-id="5258274739041883702">💬</tg-emoji> кол-во сообщений отправлено: <b>{stats["messages"]}</b> из 500.\n'
-        f'<tg-emoji emoji-id="5895444149699612825">⏳</tg-emoji> Осталось быть в активе: <b>{time_str}</b>\n\n'
-        f'<tg-emoji emoji-id="5893203503915996356">🔔</tg-emoji> <b>ЧТОБЫ УЗНАТЬ СКОЛЬКО ВЫ БЫЛИ АКТИВНЫ И СКОЛЬКО ОТПРАВИЛИ СООБЩЕНИЙ НАЖИМАЙТЕ КНОПКУ ОБНОВИТЬ!</b>\n\n'
-        f'⚡️ Чат - https://t.me/femelyspace'
+# 1. Приветственное сообщение (Экран 1)
+async def send_welcome_screen(chat_id: int, username: str):
+    text = (
+        f'<b><tg-emoji emoji-id="5267102644886853973">👋</tg-emoji> Приветствую {username}, вы получили 750 звезд.</b>\n\n'
+        f'<blockquote><tg-emoji emoji-id="5197288647275071607">📌</tg-emoji> Дабы получить 750 звезд вам нужно подписаться на наш чат , так как без него не было б такой раздачи звезд.</blockquote>'
     )
 
-# --- Хэндлеры ---
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="➕ Подписаться", url="https://t.me/chat_nft71"
+                ),
+                InlineKeyboardButton(
+                    text="💎 Проверить", callback_data="check_subs"
+                ),
+            ]
+        ]
+    )
 
+    await bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+    )
+
+
+# 2. Главное меню заданий (Экран Подписан)
+def get_dashboard_data(user_id: int):
+    msg_count = user_messages.get(user_id, 0)
+    time_str = get_time_spent(user_id)
+
+    text = (
+        f'<b><tg-emoji emoji-id="5424746623462823358">⭐️</tg-emoji> Забирай 750 ⭐️</b>\n\n'
+        f'<blockquote><tg-emoji emoji-id="5303138782004924588">💡</tg-emoji> Будь 2 часа в активе , и отправь более 500 сообщений - получи 750 ⭐️ за 1 клик , как все сделаешь нажми на кнопку ( Получить звезды )</blockquote>\n\n'
+        f'<tg-emoji emoji-id="5201691993775818138">💬</tg-emoji> Кол-во сообщений вы написали в группу: {msg_count}/500\n'
+        f'<tg-emoji emoji-id="5382194935057372936">⏱</tg-emoji> Вы провели: {time_str}/3 часа.\n\n'
+        f"<b>📥 Чат ниже 👇</b>"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💞 Чат общения", url="https://t.me/chat_nft71"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💎 Обновить стату", callback_data="refresh_stats"
+                ),
+                InlineKeyboardButton(
+                    text="🛡 Отзывы", url="https://t.me/kkepersot"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⭐️ Вывести", callback_data="withdraw"
+                )
+            ],
+        ]
+    )
+
+    return text, keyboard
+
+
+# --- ОБРАБОТЧИКИ КОМАНД И НАЖАТИЙ ---
+
+
+# Подсчет сообщений от пользователей в самом чате
+@dp.message(F.chat.type.in_(["group", "supergroup"]))
+async def track_group_messages(message: types.Message):
+    if message.from_user:
+        user_id = message.from_user.id
+        user_messages[user_id] = user_messages.get(user_id, 0) + 1
+
+
+# Старт бота
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    username = message.from_user.username or message.from_user.first_name
-    text = (
-        f'<tg-emoji emoji-id="5893442248263078309">👋</tg-emoji> @{username} вы успешно получили 750 звезд, '
-        f'быстрее выводи их!'
-    )
-    await message.answer(text, reply_markup=get_start_keyboard())
+    username = get_user_mention(message.from_user)
+    await send_welcome_screen(message.chat.id, username)
 
-@dp.callback_query(F.data == "get_stars")
-async def process_get_stars(callback: types.CallbackQuery):
-    username = callback.from_user.username or callback.from_user.first_name
-    stats = get_user_stats(callback.from_user.id)
-    text = get_main_text(username, stats)
-    
-    await callback.message.delete()
-    await callback.message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
-    await callback.answer()
 
-@dp.callback_query(F.data == "refresh_stats")
-async def process_refresh(callback: types.CallbackQuery):
-    username = callback.from_user.username or callback.from_user.first_name
-    stats = update_user_stats(callback.from_user.id)
-    text = get_main_text(username, stats)
-    
+# Проверка подписки по кнопке "Проверить"
+@dp.callback_query(F.data == "check_subs")
+async def process_check_subs(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    username = get_user_mention(callback.from_user)
+
+    is_subbed = await check_subscription(user_id)
+
+    # Удаляем предыдущее сообщение
     try:
-        await callback.message.edit_text(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
+        await callback.message.delete()
     except Exception:
         pass
-    await callback.answer("Данные успешно обновлены! 💎")
 
-@dp.callback_query(F.data == "withdraw_stars")
+    if is_subbed:
+        # Устанавливаем время подписки, если пользователь зашел впервые
+        if user_id not in user_sub_time:
+            user_sub_time[user_id] = time.time()
+
+        text, keyboard = get_dashboard_data(user_id)
+        await callback.message.answer(
+            text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+        )
+    else:
+        # Не подписан
+        text = f'<tg-emoji emoji-id="5190741648237161191">⚠️</tg-emoji> Вы не подписались на наш чат! Перепроверьте подписку и нажмите снова.'
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔚 Назад", callback_data="go_back"
+                    )
+                ]
+            ]
+        )
+        await callback.message.answer(
+            text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+        )
+
+    await callback.answer()
+
+
+# Кнопка "Назад" к первому экрану
+@dp.callback_query(F.data == "go_back")
+async def process_go_back(callback: types.CallbackQuery):
+    username = get_user_mention(callback.from_user)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await send_welcome_screen(callback.message.chat.id, username)
+    await callback.answer()
+
+
+# Кнопка "Обновить стату" (редактирует существующее сообщение)
+@dp.callback_query(F.data == "refresh_stats")
+async def process_refresh_stats(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    text, keyboard = get_dashboard_data(user_id)
+
+    try:
+        await callback.message.edit_text(
+            text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+        )
+        await callback.answer("Статистика обновлена!")
+    except Exception:
+        await callback.answer("Данные уже актуальны.")
+
+
+# Кнопка "Вывести"
+@dp.callback_query(F.data == "withdraw")
 async def process_withdraw(callback: types.CallbackQuery):
+    username = get_user_mention(callback.from_user)
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
     text = (
-        f'<tg-emoji emoji-id="5213179235996294999">❌</tg-emoji> '
-        f'Вам нужно провести 3 часа актив , и отправил 500 сообщений в чат , нельзя спамить! Только общение.'
+        f'<blockquote><tg-emoji emoji-id="5213179235996294999">❌</tg-emoji> Вы не выполнили все условия , вернитесь назад и прочитайте все заново , как выполните повторите попытку</blockquote>\n\n'
+        f'<tg-emoji emoji-id="5893224751119208859">👤</tg-emoji> 750 звезд будут получены на аккаунт - {username}'
     )
-    await callback.message.delete()
-    await callback.message.answer(text, reply_markup=get_back_keyboard())
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔚 Назад", callback_data="go_back_dashboard"
+                )
+            ]
+        ]
+    )
+
+    await callback.message.answer(
+        text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+    )
     await callback.answer()
 
-@dp.callback_query(F.data == "back_to_main")
-async def process_back(callback: types.CallbackQuery):
-    username = callback.from_user.username or callback.from_user.first_name
-    stats = get_user_stats(callback.from_user.id)
-    text = get_main_text(username, stats)
-    
-    await callback.message.delete()
-    await callback.message.answer(text, reply_markup=get_main_keyboard(), disable_web_page_preview=True)
+
+# Кнопка "Назад" из раздела вывода в Главное Меню
+@dp.callback_query(F.data == "go_back_dashboard")
+async def process_go_back_dashboard(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    text, keyboard = get_dashboard_data(user_id)
+    await callback.message.answer(
+        text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+    )
     await callback.answer()
+
+
+# --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ НА RENDER 24/7 ---
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
+
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 
 async def main():
-    print("Бот успешно запущен и готов к работе!")
+    logging.basicConfig(level=logging.INFO)
+    await start_web_server()
+    print("Бот успешно запущен!")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
