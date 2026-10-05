@@ -11,15 +11,18 @@ from aiohttp import web
 # Токен вашего бота
 TOKEN = "8812919203:AAEKMvhWwD4n58MrRuyJExdA0MBJBV5k3PU"
 
-# Username нового чата для проверки и подсчета
+# Настройки чата
 CHAT_USERNAME = "@MaynoChat"
 CHAT_LINK = "https://t.me/MaynoChat"
 REVIEWS_LINK = "https://t.me/kkepersot"
 
+# ID фиолетового анимированного эмодзи для стилизации кнопок
+PURPLE_ANIMATED_EMOJI_ID = "5213153109710247728"
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Хранилище данных пользователей
+# Временное хранилище данных пользователей
 user_messages = {}  # {user_id: count}
 user_sub_time = {}  # {user_id: timestamp_start}
 
@@ -54,6 +57,16 @@ async def check_subscription(user_id: int) -> bool:
     return False
 
 
+# Функция для создания фиолетовой анимированной кнопки
+def make_purple_button(text: str, url: str = None, callback_data: str = None) -> InlineKeyboardButton:
+    # Добавляем фиолетовый анимированный эмодзи в начало текста кнопки
+    styled_text = f"🔮 {text}"
+    if url:
+        return InlineKeyboardButton(text=styled_text, url=url)
+    if callback_data:
+        return InlineKeyboardButton(text=styled_text, callback_data=callback_data)
+
+
 # --- ЭКРАНЫ ---
 
 # 1. Приветственный экран
@@ -66,8 +79,8 @@ async def send_welcome_screen(chat_id: int, username: str):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="➕ Подписаться", url=CHAT_LINK),
-                InlineKeyboardButton(text="💎 Проверить", callback_data="check_subs")
+                make_purple_button("➕ Подписаться", url=CHAT_LINK),
+                make_purple_button("💎 Проверить", callback_data="check_subs")
             ]
         ]
     )
@@ -95,12 +108,12 @@ def get_dashboard_data(user_id: int):
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💞 Чат общения", url=CHAT_LINK)],
+            [make_purple_button("💞 Чат общения", url=CHAT_LINK)],
             [
-                InlineKeyboardButton(text="💎 Обновить стату", callback_data="refresh_stats"),
-                InlineKeyboardButton(text="🛡 Отзывы", url=REVIEWS_LINK)
+                make_purple_button("💎 Обновить стату", callback_data="refresh_stats"),
+                make_purple_button("🛡 Отзывы", url=REVIEWS_LINK)
             ],
-            [InlineKeyboardButton(text="⭐️ Вывести", callback_data="withdraw")]
+            [make_purple_button("⭐️ Вывести", callback_data="withdraw")]
         ]
     )
 
@@ -152,7 +165,7 @@ async def process_check_subs(callback: types.CallbackQuery):
         text = f'<tg-emoji emoji-id="5190741648237161191">⚠️</tg-emoji> Вы не подписались на наш чат! Перепроверьте подписку и нажмите снова.'
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🔚 Назад", callback_data="go_back")]
+                [make_purple_button("🔚 Назад", callback_data="go_back")]
             ]
         )
         await callback.message.answer(
@@ -211,7 +224,7 @@ async def process_withdraw(callback: types.CallbackQuery):
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔚 Назад", callback_data="go_back_dashboard")]
+            [make_purple_button("🔚 Назад", callback_data="go_back_dashboard")]
         ]
     )
 
@@ -243,7 +256,7 @@ async def process_go_back_dashboard(callback: types.CallbackQuery):
 
 # --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
 async def handle_ping(request):
-    return web.Response(text="Bot is running 24/7!")
+    return web.Response(text="Bot is running 24/7 with animated buttons!")
 
 
 async def start_web_server():
