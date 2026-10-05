@@ -11,26 +11,25 @@ from aiohttp import web
 # Токен вашего бота
 TOKEN = "8812919203:AAEKMvhWwD4n58MrRuyJExdA0MBJBV5k3PU"
 
-# Username чата для проверки подписки и подсчета сообщений
-CHAT_USERNAME = "@chat_nft71"
+# Username нового чата для проверки и подсчета
+CHAT_USERNAME = "@MaynoChat"
+CHAT_LINK = "https://t.me/MaynoChat"
+REVIEWS_LINK = "https://t.me/kkepersot"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Хранилище данных (сообщения и время подписки)
-# В реальном проекте это БД, в рамках кода - словарь в памяти
+# Хранилище данных пользователей
 user_messages = {}  # {user_id: count}
 user_sub_time = {}  # {user_id: timestamp_start}
 
 
-# Вспомогательная функция формирования имени пользователя
 def get_user_mention(user: types.User) -> str:
     if user.username:
         return f"@{user.username}"
     return user.first_name
 
 
-# Вспомогательная функция расчета времени (часы и минуты)
 def get_time_spent(user_id: int) -> str:
     if user_id not in user_sub_time:
         user_sub_time[user_id] = time.time()
@@ -45,12 +44,9 @@ def get_time_spent(user_id: int) -> str:
         return f"{minutes} минут"
 
 
-# Проверка подписки на чат
 async def check_subscription(user_id: int) -> bool:
     try:
-        member = await bot.get_chat_member(
-            chat_id=CHAT_USERNAME, user_id=user_id
-        )
+        member = await bot.get_chat_member(chat_id=CHAT_USERNAME, user_id=user_id)
         if member.status in ["member", "administrator", "creator"]:
             return True
     except Exception as e:
@@ -58,10 +54,9 @@ async def check_subscription(user_id: int) -> bool:
     return False
 
 
-# --- ЭКРАНЫ И КЛАВИАТУРЫ ---
+# --- ЭКРАНЫ ---
 
-
-# 1. Приветственное сообщение (Экран 1)
+# 1. Приветственный экран
 async def send_welcome_screen(chat_id: int, username: str):
     text = (
         f'<b><tg-emoji emoji-id="5267102644886853973">👋</tg-emoji> Приветствую {username}, вы получили 750 звезд.</b>\n\n'
@@ -71,12 +66,8 @@ async def send_welcome_screen(chat_id: int, username: str):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="➕ Подписаться", url="https://t.me/chat_nft71"
-                ),
-                InlineKeyboardButton(
-                    text="💎 Проверить", callback_data="check_subs"
-                ),
+                InlineKeyboardButton(text="➕ Подписаться", url=CHAT_LINK),
+                InlineKeyboardButton(text="💎 Проверить", callback_data="check_subs")
             ]
         ]
     )
@@ -85,11 +76,11 @@ async def send_welcome_screen(chat_id: int, username: str):
         chat_id=chat_id,
         text=text,
         parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
+        reply_markup=keyboard
     )
 
 
-# 2. Главное меню заданий (Экран Подписан)
+# 2. Главное меню заданий
 def get_dashboard_data(user_id: int):
     msg_count = user_messages.get(user_id, 0)
     time_str = get_time_spent(user_id)
@@ -99,39 +90,26 @@ def get_dashboard_data(user_id: int):
         f'<blockquote><tg-emoji emoji-id="5303138782004924588">💡</tg-emoji> Будь 2 часа в активе , и отправь более 500 сообщений - получи 750 ⭐️ за 1 клик , как все сделаешь нажми на кнопку ( Получить звезды )</blockquote>\n\n'
         f'<tg-emoji emoji-id="5201691993775818138">💬</tg-emoji> Кол-во сообщений вы написали в группу: {msg_count}/500\n'
         f'<tg-emoji emoji-id="5382194935057372936">⏱</tg-emoji> Вы провели: {time_str}/3 часа.\n\n'
-        f"<b>📥 Чат ниже 👇</b>"
+        f'<b>📥 Чат ниже 👇</b>'
     )
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="💞 Чат общения", url=CHAT_LINK)],
             [
-                InlineKeyboardButton(
-                    text="💞 Чат общения", url="https://t.me/chat_nft71"
-                )
+                InlineKeyboardButton(text="💎 Обновить стату", callback_data="refresh_stats"),
+                InlineKeyboardButton(text="🛡 Отзывы", url=REVIEWS_LINK)
             ],
-            [
-                InlineKeyboardButton(
-                    text="💎 Обновить стату", callback_data="refresh_stats"
-                ),
-                InlineKeyboardButton(
-                    text="🛡 Отзывы", url="https://t.me/kkepersot"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="⭐️ Вывести", callback_data="withdraw"
-                )
-            ],
+            [InlineKeyboardButton(text="⭐️ Вывести", callback_data="withdraw")]
         ]
     )
 
     return text, keyboard
 
 
-# --- ОБРАБОТЧИКИ КОМАНД И НАЖАТИЙ ---
+# --- ОБРАБОТЧИКИ ---
 
-
-# Подсчет сообщений от пользователей в самом чате
+# Подсчет сообщений от пользователей в чате
 @dp.message(F.chat.type.in_(["group", "supergroup"]))
 async def track_group_messages(message: types.Message):
     if message.from_user:
@@ -146,7 +124,7 @@ async def cmd_start(message: types.Message):
     await send_welcome_screen(message.chat.id, username)
 
 
-# Проверка подписки по кнопке "Проверить"
+# Кнопка "Проверить"
 @dp.callback_query(F.data == "check_subs")
 async def process_check_subs(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -161,34 +139,32 @@ async def process_check_subs(callback: types.CallbackQuery):
         pass
 
     if is_subbed:
-        # Устанавливаем время подписки, если пользователь зашел впервые
         if user_id not in user_sub_time:
             user_sub_time[user_id] = time.time()
 
         text, keyboard = get_dashboard_data(user_id)
         await callback.message.answer(
-            text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard
         )
     else:
-        # Не подписан
         text = f'<tg-emoji emoji-id="5190741648237161191">⚠️</tg-emoji> Вы не подписались на наш чат! Перепроверьте подписку и нажмите снова.'
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🔚 Назад", callback_data="go_back"
-                    )
-                ]
+                [InlineKeyboardButton(text="🔚 Назад", callback_data="go_back")]
             ]
         )
         await callback.message.answer(
-            text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard
         )
 
     await callback.answer()
 
 
-# Кнопка "Назад" к первому экрану
+# Кнопка "Назад" к приветственному экрану
 @dp.callback_query(F.data == "go_back")
 async def process_go_back(callback: types.CallbackQuery):
     username = get_user_mention(callback.from_user)
@@ -201,7 +177,7 @@ async def process_go_back(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# Кнопка "Обновить стату" (редактирует существующее сообщение)
+# Кнопка "Обновить стату" (редактирует экран без удаления)
 @dp.callback_query(F.data == "refresh_stats")
 async def process_refresh_stats(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -209,7 +185,9 @@ async def process_refresh_stats(callback: types.CallbackQuery):
 
     try:
         await callback.message.edit_text(
-            text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard
         )
         await callback.answer("Статистика обновлена!")
     except Exception:
@@ -233,21 +211,19 @@ async def process_withdraw(callback: types.CallbackQuery):
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔚 Назад", callback_data="go_back_dashboard"
-                )
-            ]
+            [InlineKeyboardButton(text="🔚 Назад", callback_data="go_back_dashboard")]
         ]
     )
 
     await callback.message.answer(
-        text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+        text=text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard
     )
     await callback.answer()
 
 
-# Кнопка "Назад" из раздела вывода в Главное Меню
+# Кнопка "Назад" из окна вывода обратно в меню со статистикой
 @dp.callback_query(F.data == "go_back_dashboard")
 async def process_go_back_dashboard(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -258,14 +234,16 @@ async def process_go_back_dashboard(callback: types.CallbackQuery):
 
     text, keyboard = get_dashboard_data(user_id)
     await callback.message.answer(
-        text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+        text=text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard
     )
     await callback.answer()
 
 
-# --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ НА RENDER 24/7 ---
+# --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
 async def handle_ping(request):
-    return web.Response(text="Bot is running!")
+    return web.Response(text="Bot is running 24/7!")
 
 
 async def start_web_server():
