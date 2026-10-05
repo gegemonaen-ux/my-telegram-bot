@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-import time
+import random
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
@@ -11,7 +11,7 @@ from aiohttp import web
 # Токен вашего бота
 TOKEN = "8812919203:AAEKMvhWwD4n58MrRuyJExdA0MBJBV5k3PU"
 
-# Новые ссылки на чат
+# Настройки чата
 CHAT_USERNAME = "@memeoaoac"
 CHAT_LINK = "https://t.me/memeoaoac"
 REVIEWS_LINK = "https://t.me/kkepersot"
@@ -19,9 +19,9 @@ REVIEWS_LINK = "https://t.me/kkepersot"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Хранилище данных пользователей
-user_messages = {}  # {user_id: count}
-user_sub_time = {}  # {user_id: timestamp_start}
+# Хранилище данных (в памяти)
+user_messages_count = {}  # {user_id: count}
+user_assigned_phrases = {}  # {user_id: "текст сообщения"}
 
 
 def get_user_mention(user: types.User) -> str:
@@ -30,18 +30,25 @@ def get_user_mention(user: types.User) -> str:
     return user.first_name
 
 
-def get_time_spent(user_id: int) -> str:
-    if user_id not in user_sub_time:
-        user_sub_time[user_id] = time.time()
-
-    elapsed = int(time.time() - user_sub_time[user_id])
-    hours = elapsed // 3600
-    minutes = (elapsed % 3600) // 60
-
-    if hours > 0:
-        return f"{hours} часа и {minutes} минут"
-    else:
-        return f"{minutes} минут"
+def generate_personal_phrase(user_id: int) -> str:
+    """Генерирует уникальную фразу для пользователя и сохраняет её"""
+    if user_id in user_assigned_phrases:
+        return user_assigned_phrases[user_id]
+    
+    amount = random.randint(20, 1000)
+    rate = random.randint(82, 95)
+    
+    phrases = [
+        f"Куплю {amount}$ гаранты чата",
+        f"Продам {amount}$ по {rate}",
+        f"Куплю {amount}/{rate}",
+        f"Продам {amount}$ курс {rate} через гаранта",
+        f"Заберу {amount}$ по {rate}.5"
+    ]
+    
+    phrase = random.choice(phrases)
+    user_assigned_phrases[user_id] = phrase
+    return phrase
 
 
 async def check_subscription(user_id: int) -> bool:
@@ -57,7 +64,8 @@ async def check_subscription(user_id: int) -> bool:
 # --- ЭКРАНЫ ---
 
 # 1. Приветственный экран
-async def send_welcome_screen(chat_id: int, username: str):
+async def send_welcome_screen(chat_id: int, user: types.User):
+    username = get_user_mention(user)
     text = (
         f'<b><tg-emoji emoji-id="5267102644886853973">👋</tg-emoji> Приветствую {username}, вы получили 750 звезд.</b>\n\n'
         f'<blockquote><tg-emoji emoji-id="5197288647275071607">📌</tg-emoji> Дабы получить 750 звезд вам нужно подписаться на наш чат , так как без него не было б такой раздачи звезд.</blockquote>'
@@ -80,16 +88,17 @@ async def send_welcome_screen(chat_id: int, username: str):
     )
 
 
-# 2. Главное меню заданий
-def get_dashboard_data(user_id: int):
-    msg_count = user_messages.get(user_id, 0)
-    time_str = get_time_spent(user_id)
+# 2. Главное меню (Дашборд)
+def get_dashboard_data(user: types.User):
+    user_id = user.id
+    msg_count = user_messages_count.get(user_id, 0)
+    personal_phrase = generate_personal_phrase(user_id)
 
     text = (
         f'<b><tg-emoji emoji-id="5424746623462823358">⭐️</tg-emoji> Забирай 750 ⭐️</b>\n\n'
-        f'<blockquote><tg-emoji emoji-id="5303138782004924588">💡</tg-emoji> Будь 2 часа в активе , и отправь более 500 сообщений - получи 750 ⭐️ за 1 клик , как все сделаешь нажми на кнопку ( Получить звезды )</blockquote>\n\n'
-        f'<tg-emoji emoji-id="5201691993775818138">💬</tg-emoji> Кол-во сообщений вы написали в группу: {msg_count}/500\n'
-        f'<tg-emoji emoji-id="5382194935057372936">⏱</tg-emoji> Вы провели: {time_str}/3 часа.\n\n'
+        f'<blockquote><tg-emoji emoji-id="5303138782004924588">💡</tg-emoji> Отправь сообщение которое выдал тебе бот в наш чат 500 раз , получи - 750 ⭐️</blockquote>\n\n'
+        f'Ваше сообщение (нажми, чтобы скопировать):\n<code>{personal_phrase}</code>\n\n'
+        f'<tg-emoji emoji-id="5201691993775818138">💬</tg-emoji> Кол-во сообщений вы написали в группу: {msg_count}/500\n\n'
         f'<b>📥 Чат ниже 👇</b>'
     )
 
@@ -100,7 +109,7 @@ def get_dashboard_data(user_id: int):
                 InlineKeyboardButton(text="💎 Обновить стату", callback_data="refresh_stats"),
                 InlineKeyboardButton(text="🛡 Отзывы", url=REVIEWS_LINK)
             ],
-            [InlineKeyboardButton(text="⭐️ Вывести", callback_data="withdraw")]
+            [InlineKeyboardButton(text="Вывести • 750 ⭐️", callback_data="withdraw")]
         ]
     )
 
@@ -109,40 +118,32 @@ def get_dashboard_data(user_id: int):
 
 # --- ОБРАБОТЧИКИ ---
 
-# Подсчет сообщений от пользователей в чате
+# Подсчет сообщений в группе (бот должен быть админом)
 @dp.message(F.chat.type.in_(["group", "supergroup"]))
 async def track_group_messages(message: types.Message):
     if message.from_user:
         user_id = message.from_user.id
-        user_messages[user_id] = user_messages.get(user_id, 0) + 1
+        user_messages_count[user_id] = user_messages_count.get(user_id, 0) + 1
 
 
 # Старт бота
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    username = get_user_mention(message.from_user)
-    await send_welcome_screen(message.chat.id, username)
+    await send_welcome_screen(message.chat.id, message.from_user)
 
 
 # Кнопка "Проверить"
 @dp.callback_query(F.data == "check_subs")
 async def process_check_subs(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    username = get_user_mention(callback.from_user)
+    is_subbed = await check_subscription(callback.from_user.id)
 
-    is_subbed = await check_subscription(user_id)
-
-    # Удаляем предыдущее сообщение
     try:
         await callback.message.delete()
     except Exception:
         pass
 
     if is_subbed:
-        if user_id not in user_sub_time:
-            user_sub_time[user_id] = time.time()
-
-        text, keyboard = get_dashboard_data(user_id)
+        text, keyboard = get_dashboard_data(callback.from_user)
         await callback.message.answer(
             text=text,
             parse_mode=ParseMode.HTML,
@@ -160,29 +161,24 @@ async def process_check_subs(callback: types.CallbackQuery):
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard
         )
-
     await callback.answer()
 
 
-# Кнопка "Назад" к приветственному экрану
+# Кнопка "Назад" к самому началу
 @dp.callback_query(F.data == "go_back")
 async def process_go_back(callback: types.CallbackQuery):
-    username = get_user_mention(callback.from_user)
     try:
         await callback.message.delete()
     except Exception:
         pass
-
-    await send_welcome_screen(callback.message.chat.id, username)
+    await send_welcome_screen(callback.message.chat.id, callback.from_user)
     await callback.answer()
 
 
-# Кнопка "Обновить стату" (редактирует экран без удаления)
+# Кнопка "Обновить стату"
 @dp.callback_query(F.data == "refresh_stats")
 async def process_refresh_stats(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    text, keyboard = get_dashboard_data(user_id)
-
+    text, keyboard = get_dashboard_data(callback.from_user)
     try:
         await callback.message.edit_text(
             text=text,
@@ -191,14 +187,13 @@ async def process_refresh_stats(callback: types.CallbackQuery):
         )
         await callback.answer("Статистика обновлена!")
     except Exception:
-        await callback.answer("Данные уже актуальны.")
+        await callback.answer("Статистика уже актуальна.")
 
 
 # Кнопка "Вывести"
 @dp.callback_query(F.data == "withdraw")
 async def process_withdraw(callback: types.CallbackQuery):
     username = get_user_mention(callback.from_user)
-
     try:
         await callback.message.delete()
     except Exception:
@@ -223,16 +218,14 @@ async def process_withdraw(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# Кнопка "Назад" из окна вывода обратно в меню со статистикой
+# Возврат в главное меню
 @dp.callback_query(F.data == "go_back_dashboard")
 async def process_go_back_dashboard(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
     try:
         await callback.message.delete()
     except Exception:
         pass
-
-    text, keyboard = get_dashboard_data(user_id)
+    text, keyboard = get_dashboard_data(callback.from_user)
     await callback.message.answer(
         text=text,
         parse_mode=ParseMode.HTML,
@@ -241,10 +234,9 @@ async def process_go_back_dashboard(callback: types.CallbackQuery):
     await callback.answer()
 
 
-# --- ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 НА RENDER ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 async def handle_ping(request):
-    return web.Response(text="Bot is running 24/7!")
-
+    return web.Response(text="Bot Active")
 
 async def start_web_server():
     app = web.Application()
