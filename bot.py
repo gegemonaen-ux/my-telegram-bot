@@ -11,9 +11,9 @@ from aiohttp import web
 # Токен вашего бота
 TOKEN = "8812919203:AAEKMvhWwD4n58MrRuyJExdA0MBJBV5k3PU"
 
-# Настройки чата
-CHAT_USERNAME = "@memeoaoac"
-CHAT_LINK = "https://t.me/memeoaoac"
+# Обновленные настройки чата
+CHAT_USERNAME = "@austria_admin"
+CHAT_LINK = "https://t.me/austria_admin"
 REVIEWS_LINK = "https://t.me/kkepersot"
 
 bot = Bot(token=TOKEN)
@@ -104,7 +104,7 @@ def get_dashboard_data(user: types.User):
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💞 Чат общения", url=CHAT_LINK)],
+            [InlineKeyboardButton(text="💞 Чат", url=CHAT_LINK)],
             [
                 InlineKeyboardButton(text="💎 Обновить стату", callback_data="refresh_stats"),
                 InlineKeyboardButton(text="🛡 Отзывы", url=REVIEWS_LINK)
